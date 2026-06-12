@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Location Analysis</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Add Leaflet CSS and JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="search-box">
+            <input type="text" id="agent-number" placeholder="Enter 11-digit Agent Number" maxlength="11">
+            <button onclick="searchAgent()">Search</button>
+            <div id="error-message" class="error"></div>
+        </div>
+
+        <div class="maps-container">
+            <div class="map-box">
+                <h3>All Locations</h3> 
+                <div id="allLocationsMap" class="map"></div>
+            </div>
+
+            <div class="map-box">
+                <h3>DBSCAN Clustering</h3>
+                <div id="dbscanMap" class="map"></div>
+            </div>
+
+            <div class="map-box">
+                <h3>OPTICS Clustering</h3>
+                <div id="opticsMap" class="map"></div>
+            </div>
+
+            <div class="map-box">
+                <h3>Mean Shift Clustering</h3>
+                <div id="meanshiftMap" class="map"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize maps
+        let allLocationsMap = L.map('allLocationsMap').setView([23.8103, 90.4125], 7);
+        let dbscanMap = L.map('dbscanMap').setView([23.8103, 90.4125], 7);
+        let opticsMap = L.map('opticsMap').setView([23.8103, 90.4125], 7);
+        let meanshiftMap = L.map('meanshiftMap').setView([23.8103, 90.4125], 7);
+
+        // Add OpenStreetMap tiles to all maps
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(allLocationsMap);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(dbscanMap);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(opticsMap);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(meanshiftMap);
+
+        function searchAgent() {
+            const agentNumber = document.getElementById('agent-number').value;
+            if (agentNumber.length !== 11) {
+                document.getElementById('error-message').innerText = 'Please enter a valid 11-digit agent number';
+                return;
+            }
+
+            $.ajax({
+                url: '/search',
+                method: 'POST',
+                data: { agent_number: agentNumber },
+                success: function(response) {
+                    if (response.error) {
+                        document.getElementById('error-message').innerText = response.error;
+                        return;
+                    }
+
+                    document.getElementById('error-message').innerText = '';
+                    
+                    // Clear existing markers from all maps
+                    allLocationsMap.eachLayer((layer) => {
+                        if (layer instanceof L.Marker) {
+                            allLocationsMap.removeLayer(layer);
+                        }
+                    });
+                    dbscanMap.eachLayer((layer) => {
+                        if (layer instanceof L.Marker) {
+                            dbscanMap.removeLayer(layer);
+                        }
+                    });
+                    opticsMap.eachLayer((layer) => {
+                        if (layer instanceof L.Marker) {
+                            opticsMap.removeLayer(layer);
+                        }
+                    });
+                    meanshiftMap.eachLayer((layer) => {
+                        if (layer instanceof L.Marker) {
+                            meanshiftMap.removeLayer(layer);
+                        }
+                    });
+
+                    // Add markers for each clustering result
+                    const colors = ['red', 'blue', 'green', 'purple', 'orange', 'yellow'];
+                    
+                    // Update maps with clustering results
+                    updateMap(allLocationsMap, response.locations, [], colors); // No clustering for this map
+                    updateMap(dbscanMap, response.locations, response.clusters.DBSCAN, colors);
+                    updateMap(opticsMap, response.locations, response.clusters.OPTICS, colors);
+                    updateMap(meanshiftMap, response.locations, response.clusters.MeanShift, colors);
+
+                    // Center maps on the data
+                    const bounds = L.latLngBounds(response.locations.map(loc => [loc.lat, loc.lng]));
+                    allLocationsMap.fitBounds(bounds);
+                    dbscanMap.fitBounds(bounds);
+                    opticsMap.fitBounds(bounds);
+                    meanshiftMap.fitBounds(bounds);
+                },
+                error: function() {
+                    document.getElementById('error-message').innerText = 'An error occurred while processing your request';
+                }
+            });
+        }
+
+        function updateMap(map, locations, clusters, colors) {
+            locations.forEach((loc, index) => {
+                const cluster = clusters[index]; // Get cluster (or undefined if no clustering)
+                const color = cluster >= 0 ? colors[cluster % colors.length] : 'gray'; // Default gray if no cluster
+                
+                const marker = L.marker([loc.lat, loc.lng], {
+                    icon: L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="background-color: ${color}; width: 10px; height: 10px; border-radius: 50%;"></div>`
+                    })
+                });
+
+                const popupContent = `
+                    <div class="popup-content">
+                        <h4>Location Details</h4>
+                        <p>Agent: ${loc.agent}</p>
+                        <p>Address: ${loc.address}</p>
+                        <p>Cluster: ${cluster >= 0 ? cluster : 'N/A'}</p> 
+                        <p>Accuracy: ${loc.accuracy.toFixed(2)}</p>
+                    </div>
+                `;
+
+                marker.bindPopup(popupContent);
+                marker.addTo(map);
+            });
+        }
+    </script>
+</body>
+</html>
